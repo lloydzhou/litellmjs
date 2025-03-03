@@ -2,7 +2,6 @@ import liteLLM from './src/litellm.js';
 
 // 显示当前日期和时间
 console.log(`Current Date and Time (UTC - YYYY-MM-DD HH:MM:SS formatted): ${new Date().toISOString().replace('T', ' ').substring(0, 19)}`);
-console.log(`Current User's Login: lloydzhou`);
 console.log('');
 
 // 注册提供商
@@ -65,79 +64,210 @@ async function testProviderForModel() {
   }
 }
 
-async function testProxyModelReplacement() {
-  console.log('\n测试代理模型替换:');
+async function testFormatCompatibility() {
+  console.log('\n测试各提供商响应格式兼容性:');
   
-  // 模拟 completion 函数，不实际发送请求
-  const mockCompletion = (model, options) => {
-    const { provider, actualModel } = liteLLM.getProviderForModel(model);
-    
-    let providerName = '未找到提供商';
-    
-    if (provider) {
-      if (provider.isProxy) {
-        providerName = `代理提供商 (${provider.proxyName})`;
-      } else if (provider.constructor && provider.constructor.providerType) {
-        providerName = provider.constructor.providerType;
-      }
-    }
-    
-    return {
-      provider: providerName,
-      requestedModel: model,
-      actualModel: actualModel,
-      messages: options.messages
-    };
-  };
-
-  // 测试不同模型
   const testCases = [
-    { model: 'gpt-3.5-turbo', message: 'OpenAI 模型' },
-    { model: 'claude-2', message: 'Anthropic 模型' },
-    { model: 'proxy-model', message: '标准代理 (不替换模型)' },
-    { model: 'gpt-4-proxy', message: 'DeepSeek 代理 (替换为 deepseek-chat)' }
+    {
+      title: '1. OpenAI 基本响应',
+      model: 'openai/gpt-3.5-turbo',
+      messages: [
+        { role: 'user', content: '你好' }
+      ]
+    },
+    {
+      title: '2. Anthropic 基本响应',
+      model: 'anthropic/claude-2',
+      messages: [
+        { role: 'user', content: '你好' }
+      ]
+    },
+    {
+      title: '3. OpenAI 函数调用',
+      model: 'openai/gpt-3.5-turbo',
+      messages: [
+        { role: 'user', content: '今天北京的天气怎么样？' }
+      ],
+      functions: [
+        {
+          name: 'get_weather',
+          description: '获取指定地点的天气',
+          parameters: {
+            type: 'object',
+            properties: {
+              location: {
+                type: 'string',
+                description: '地点，如北京、上海等'
+              },
+              unit: {
+                type: 'string',
+                enum: ['celsius', 'fahrenheit'],
+                description: '温度单位'
+              }
+            },
+            required: ['location']
+          }
+        }
+      ]
+    },
+    {
+      title: '4. Anthropic 工具调用',
+      model: 'anthropic/claude-3-5-haiku-20241022',
+      messages: [
+        { role: 'user', content: '今天北京的天气怎么样？' }
+      ],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            description: '获取指定地点的天气',
+            parameters: {
+              type: 'object',
+              properties: {
+                location: {
+                  type: 'string',
+                  description: '地点，如北京、上海等'
+                },
+                unit: {
+                  type: 'string',
+                  enum: ['celsius', 'fahrenheit'],
+                  description: '温度单位'
+                }
+              },
+              required: ['location']
+            }
+          }
+        }
+      ]
+    }
   ];
-
-  for (const { model, message } of testCases) {
-    console.log(`\n测试 "${model}" (${message}):`);
-    const result = mockCompletion(model, {
-      messages: [{ role: 'user', content: '测试消息' }]
-    });
+  
+  for (const testCase of testCases) {
+    console.log(`\n${testCase.title}:`);
     
-    console.log(`- 请求的模型: ${result.requestedModel}`);
-    console.log(`- 提供商: ${result.provider}`);
-    console.log(`- 实际使用的模型: ${result.actualModel}`);
+    try {
+      delete testCase.title;
+      const response = await liteLLM.completion(testCase);
+      console.log(`响应: ${JSON.stringify(response)}`);
+      // 验证响应格式是否符合 OpenAI 格式
+      const isValidFormat = 
+        response.id && 
+        response.object === 'chat.completion' && 
+        Array.isArray(response.choices) &&
+        response.choices.length > 0 &&
+        response.choices[0].message &&
+        (response.choices[0].message.role === 'assistant') &&
+        (response.choices[0].message.content !== undefined || response.choices[0].message.function_call);
+      
+      console.log(`响应格式有效: ${isValidFormat}`);
+      console.log(`响应对象: ${response.object}`);
+      console.log(`响应角色: ${response.choices[0].message.role}`);
+      
+      if (response.choices[0].message.function_call) {
+        console.log(`函数调用: ${response.choices[0].message.function_call.name}`);
+        console.log(`函数参数: ${response.choices[0].message.function_call.arguments}`);
+      } else {
+        console.log(`内容前20个字符: ${(response.choices[0].message.content || '').substring(0, 20)}...`);
+      }
+      
+      console.log(`完成原因: ${response.choices[0].finish_reason}`);
+      console.log(`Token计数存在: ${!!response.usage}`);
+      
+    } catch (error) {
+      console.error(error);
+      console.log(`错误: ${error.message}`);
+    }
   }
 }
 
-async function testStreamCompletion() {
-  try {
-    console.log('\n测试流式完成请求:');
-
-    // 使用提供商前缀的流式输出
-    console.log('开始流式输出...');
-    for await (const chunk of liteLLM.streamCompletion({
-      model: 'deepseek/gpt-4-proxy',
+async function testStreamingFormatCompatibility() {
+  console.log('\n测试流式响应格式兼容性:');
+  
+  const testCases = [
+    {
+      title: '1. OpenAI 流式响应',
+      model: 'openai/gpt-3.5-turbo',
       messages: [
-        { role: 'user', content: '简短介绍JavaScript。' }
+        { role: 'user', content: '用三个词形容春天' }
       ]
-    })) {
-      if (chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content) {
-        process.stdout.write(chunk.choices[0].delta.content);
-      }
+    },
+    {
+      title: '2. Anthropic 流式响应',
+      model: 'anthropic/claude-2',
+      messages: [
+        { role: 'user', content: '用三个词形容春天' }
+      ]
     }
-    console.log('\n流式输出完成');
+  ];
+  
+  for (const testCase of testCases) {
+    console.log(`\n${testCase.title}:`);
+    
+    try {
+      let chunkCount = 0;
+      let firstChunk = null;
+      let lastChunk = null;
+      
+      console.log('开始流式输出...');
+      
+      for await (const chunk of liteLLM.streamCompletion(testCase)) {
+        chunkCount++;
+        
+        if (!firstChunk) {
+          firstChunk = chunk;
+        }
+        
+        lastChunk = chunk;
+        
+        // 验证每个块是否符合 OpenAI 流式格式
+        const isValidFormat = 
+          chunk.id && 
+          chunk.object === 'chat.completion.chunk' && 
+          Array.isArray(chunk.choices);
+          
+        if (!isValidFormat) {
+          console.log(`无效块格式: ${JSON.stringify(chunk)}`);
+        }
+        
+        // 输出内容片段
+        if (chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content) {
+          process.stdout.write(chunk.choices[0].delta.content);
+        }
+      }
+      
+      console.log('\n');
+      console.log(`总块数: ${chunkCount}`);
+      console.log(`第一个块格式有效: ${firstChunk && firstChunk.object === 'chat.completion.chunk'}`);
+      console.log(`最后一个块格式有效: ${lastChunk && lastChunk.object === 'chat.completion.chunk'}`);
+      console.log(`最后一个块完成原因: ${lastChunk && lastChunk.choices[0].finish_reason}`);
+      
+    } catch (error) {
+      console.log(`错误: ${error.message}`);
+    }
+  }
+}
 
-  } catch (error) {
-    console.error('流式完成请求过程中发生错误:', error);
+async function testDeepseekProxy() {
+  console.log('\n测试 Deepseek 代理:');
+  for await (const chunk of liteLLM.streamCompletion({
+    model: 'gpt-4-proxy',
+    messages: [
+      { role: 'user', content: '你好' }
+    ]
+  })) {
+    if (chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content) {
+      process.stdout.write(chunk.choices[0].delta.content);
+    }
   }
 }
 
 // 运行测试
 async function runTests() {
   await testProviderForModel();
-  await testProxyModelReplacement();
-  await testStreamCompletion();
+  await testFormatCompatibility();
+  await testStreamingFormatCompatibility();
+  await testDeepseekProxy();
 }
 
 runTests();
