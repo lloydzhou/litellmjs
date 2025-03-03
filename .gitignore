@@ -14,6 +14,7 @@
 
 # production
 /build
+/dist
 
 # misc
 .DS_Store
@@ -44,5 +45,3 @@ dev
 
 *.key
 *.key.pub
-
-test.js

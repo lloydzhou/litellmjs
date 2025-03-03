@@ -6,11 +6,18 @@
   "module": "dist/litellm.mjs",
   "browser": "dist/litellm.umd.js",
   "types": "dist/types.d.ts",
+
+  "homepage": "https://github.com/lloydzhou/litellmjs",
+  "repository": {
+    "type": "git",
+    "url": "github.com:lloydzhou/litellmjs.git"
+  },
   "scripts": {
     "build": "rollup -c",
     "test": "jest"
   },
   "keywords": [
+    "litellm",
     "llm",
     "ai",
     "openai",

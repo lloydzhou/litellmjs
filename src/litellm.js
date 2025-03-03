@@ -16,6 +16,32 @@ class LiteLLM {
   }
 
   /**
+   * Parse model string to extract provider and actual model name
+   * Supports formats: "provider/model" and "model"
+   * 
+   * @param {string} modelString - The model string to parse
+   * @returns {Object} - Object with provider and model properties
+   */
+  parseModelString(modelString) {
+    if (!modelString || typeof modelString !== 'string') {
+      return { provider: null, model: modelString };
+    }
+
+    const parts = modelString.split('/');
+    if (parts.length === 2 && parts[0] && parts[1]) {
+      return {
+        provider: parts[0].toLowerCase(),
+        model: parts[1]
+      };
+    }
+
+    return {
+      provider: null,
+      model: modelString
+    };
+  }
+
+  /**
    * Register a provider for use with LiteLLM
    * 
    * @param {string} type - Provider type (e.g., 'openai', 'anthropic')
@@ -23,9 +49,10 @@ class LiteLLM {
    * @returns {Provider} - The registered provider
    */
   registerProvider(type, options) {
+    const providerType = type.toLowerCase();
     let provider;
     
-    switch (type) {
+    switch (providerType) {
       case PROVIDER_TYPES.OPENAI:
         provider = new OpenAIProvider(options);
         break;
@@ -37,7 +64,7 @@ class LiteLLM {
         throw new LiteLLMError(`Unsupported provider type: ${type}`, 400);
     }
     
-    this.providers[type] = provider;
+    this.providers[providerType] = provider;
     return provider;
   }
 
@@ -66,47 +93,71 @@ class LiteLLM {
   }
 
   /**
-   * Get the appropriate provider for a model
+   * Get the appropriate proxy for a model
    * 
-   * @param {string} model - Model name
-   * @returns {Provider|null} - Provider for the model or null if not found
+   * @param {string} modelString - Model string (can be "provider/model" or just "model")
+   * @returns {Object|null} - Proxy provider and model name or null if not found
    */
-  getProviderForModel(model) {
-    // Check if there's a proxy for this model
-    const proxy = this.getProxyForModel(model);
-    if (proxy) {
-      return proxy;
-    }
-
-    // Find provider by model prefix
-    const providerType = this.getProviderTypeForModel(model);
-    if (providerType && this.providers[providerType]) {
-      return this.providers[providerType];
-    }
-
-    // Check all providers to see if any explicitly support this model
-    for (const provider of Object.values(this.providers)) {
-      if (provider.supportsModel && provider.supportsModel(model)) {
-        return provider;
+  getProxyForModel(modelString) {
+    const { provider, model } = this.parseModelString(modelString);
+    
+    // Check if any proxy handles this model
+    for (const proxy of this.proxies) {
+      if (proxy.models.includes(model) || 
+          proxy.models.includes(modelString) || 
+          proxy.models.includes('*')) {
+        return { 
+          provider: proxy.provider,
+          actualModel: proxy.proxyModel || model
+        };
       }
     }
-
     return null;
   }
 
   /**
-   * Get the appropriate proxy for a model
+   * Get the appropriate provider for a model
    * 
-   * @param {string} model - Model name
-   * @returns {Provider|null} - Proxy provider for the model or null if not found
+   * @param {string} modelString - Model string (can be "provider/model" or just "model")
+   * @returns {Object} - Object with provider and actualModel properties
    */
-  getProxyForModel(model) {
-    for (const proxy of this.proxies) {
-      if (proxy.models.includes(model) || proxy.models.includes('*')) {
-        return proxy.provider;
+  getProviderForModel(modelString) {
+    const { provider: explicitProvider, model: actualModel } = this.parseModelString(modelString);
+    
+    // Check if there's a proxy for this model
+    const proxyResult = this.getProxyForModel(modelString);
+    if (proxyResult) {
+      return proxyResult;
+    }
+
+    // If explicit provider is specified, try to use it
+    if (explicitProvider && this.providers[explicitProvider]) {
+      return { 
+        provider: this.providers[explicitProvider],
+        actualModel
+      };
+    }
+
+    // Find provider by model prefix
+    const providerType = this.getProviderTypeForModel(actualModel || modelString);
+    if (providerType && this.providers[providerType]) {
+      return {
+        provider: this.providers[providerType],
+        actualModel: actualModel || modelString
+      };
+    }
+
+    // Check all providers to see if any explicitly support this model
+    for (const [name, provider] of Object.entries(this.providers)) {
+      if (provider.supportsModel && provider.supportsModel(actualModel || modelString)) {
+        return {
+          provider,
+          actualModel: actualModel || modelString
+        };
       }
     }
-    return null;
+
+    return { provider: null, actualModel: actualModel || modelString };
   }
 
   /**
@@ -116,14 +167,20 @@ class LiteLLM {
    * @returns {Promise<Object>} - The completion response
    */
   async completion(options) {
-    const { model } = options;
-    const provider = this.getProviderForModel(model);
+    const { model: modelString } = options;
+    const { provider, actualModel } = this.getProviderForModel(modelString);
     
     if (!provider) {
-      throw new LiteLLMError(`No provider found for model: ${model}`, 400);
+      throw new LiteLLMError(`No provider found for model: ${modelString}`, 400);
     }
+
+    // Create a new options object with the actual model name
+    const completionOptions = {
+      ...options,
+      model: actualModel
+    };
     
-    return await provider.completion(options);
+    return await provider.completion(completionOptions);
   }
 
   /**
@@ -133,14 +190,20 @@ class LiteLLM {
    * @returns {AsyncGenerator} - An async generator that yields completion chunks
    */
   async *streamCompletion(options) {
-    const { model } = options;
-    const provider = this.getProviderForModel(model);
+    const { model: modelString } = options;
+    const { provider, actualModel } = this.getProviderForModel(modelString);
     
     if (!provider) {
-      throw new LiteLLMError(`No provider found for model: ${model}`, 400);
+      throw new LiteLLMError(`No provider found for model: ${modelString}`, 400);
     }
+
+    // Create a new options object with the actual model name
+    const completionOptions = {
+      ...options,
+      model: actualModel
+    };
     
-    yield* provider.streamCompletion(options);
+    yield* provider.streamCompletion(completionOptions);
   }
 
   /**
@@ -180,22 +243,34 @@ class LiteLLM {
    * @param {Object} options.headers - Headers to include with proxy requests
    * @param {Array<string>} options.models - List of models to route through this proxy
    * @param {string} options.name - The name of the proxy
+   * @param {string} [options.proxyModel] - Optional model to use when making requests through the proxy
    * @returns {void}
    */
   createProxy(options) {
-    const { url, headers = {}, models = ['*'], name } = options;
+    const { url, headers = {}, models = ['*'], name, proxyModel = null } = options;
     const self = this;
     
     // Create a custom provider for this proxy
     const proxyProvider = {
+      // Add properties to help identify this as a proxy provider
+      isProxy: true, 
+      proxyName: name,
+      providerType: 'proxy',
+      
       completion: async (completionOptions) => {
+        // If proxyModel is specified, use it instead of the requested model
+        const finalOptions = {
+          ...completionOptions,
+          model: proxyModel || completionOptions.model
+        };
+
         const response = await fetch(`${url}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...headers
           },
-          body: JSON.stringify(completionOptions)
+          body: JSON.stringify(finalOptions)
         });
         
         if (!response.ok) {
@@ -211,16 +286,20 @@ class LiteLLM {
       },
       
       streamCompletion: async function* (completionOptions) {
+        // If proxyModel is specified, use it instead of the requested model
+        const finalOptions = {
+          ...completionOptions,
+          model: proxyModel || completionOptions.model,
+          stream: true
+        };
+
         const response = await fetch(`${url}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...headers
           },
-          body: JSON.stringify({
-            ...completionOptions,
-            stream: true
-          })
+          body: JSON.stringify(finalOptions)
         });
         
         if (!response.ok) {
@@ -275,8 +354,11 @@ class LiteLLM {
       models,
       url,
       headers,
-      provider: proxyProvider
+      provider: proxyProvider,
+      proxyModel // Store the proxyModel with the proxy configuration
     });
+
+    console.log(`Proxy '${name}' registered for models: ${models.join(', ')}${proxyModel ? ` (using proxyModel: ${proxyModel})` : ''}`);
   }
 }
 
