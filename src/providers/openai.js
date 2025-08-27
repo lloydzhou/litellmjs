@@ -57,21 +57,21 @@ class OpenAIProvider extends Provider {
         const reader = response.body.getReader();
         const decoder = new TextDecoder('utf-8');
         
-        try {
+  try {
           while (true) {
             const { done, value } = await reader.read();
 
             if (done) {
               // process any remaining buffered data
               if (this._sseBuffer) {
-                yield* this._processChunk('\n' + this._sseBuffer);
+                for (const obj of this._processChunk('\n' + this._sseBuffer)) yield obj;
                 this._resetSseBuffer();
               }
               break;
             }
 
             const chunk = decoder.decode(value);
-            yield* this._processChunk(chunk);
+            for (const obj of this._processChunk(chunk)) yield obj;
           }
         } finally {
           reader.releaseLock();
@@ -82,13 +82,13 @@ class OpenAIProvider extends Provider {
         const chunks = [];
         for await (const chunk of response.body) {
           const strChunk = new TextDecoder('utf-8').decode(chunk);
-          yield* this._processChunk(strChunk);
+          for (const obj of this._processChunk(strChunk)) yield obj;
         }
       }
     } else if (typeof response.text === 'function') {
       // Fallback for environments where we can't directly access the stream
-      const text = await response.text();
-      yield* this._processChunk(text);
+  const text = await response.text();
+  for (const obj of this._processChunk(text)) yield obj;
     }
   }
 
@@ -99,8 +99,9 @@ class OpenAIProvider extends Provider {
    * @param {string} chunk - The text chunk to process
    * @returns {Array} - Array of parsed JSON objects from the chunk
    */
-  *_processChunk(chunk) {
+  _processChunk(chunk) {
     // Support partial JSON across chunks by buffering until we can parse complete JSON
+    const result = [];
     const raw = this._sseBuffer + chunk;
     const lines = raw.split('\n');
 
@@ -114,14 +115,14 @@ class OpenAIProvider extends Provider {
 
       if (line === '[DONE]') {
         // unified behavior: treat as end-of-stream signal
-        return;
+        return result;
       }
 
       if (!line) continue;
 
       try {
         const parsed = JSON.parse(line);
-        yield parsed;
+        result.push(parsed);
       } catch (e) {
         // If this looks like a partial JSON (doesn't end with } or ]), buffer the original line
         const trimmed = line.trim();
@@ -137,6 +138,8 @@ class OpenAIProvider extends Provider {
         continue;
       }
     }
+
+    return result;
   }
 
   /**

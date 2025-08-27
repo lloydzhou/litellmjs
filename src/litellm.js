@@ -1,6 +1,9 @@
 import { MODEL_PREFIXES, PROVIDER_TYPES } from './types.js';
 import OpenAIProvider from './providers/openai.js';
 import AnthropicProvider from './providers/anthropic.js';
+import AzureProvider from './providers/azure.js';
+import GoogleProvider from './providers/google.js';
+import OllamaProvider from './providers/ollama.js';
 import { LiteLLMError } from './client.js';
 
 /**
@@ -58,6 +61,15 @@ class LiteLLM {
         break;
       case PROVIDER_TYPES.ANTHROPIC:
         provider = new AnthropicProvider(options);
+        break;
+      case PROVIDER_TYPES.AZURE:
+        provider = new AzureProvider(options);
+        break;
+      case PROVIDER_TYPES.GOOGLE:
+        provider = new GoogleProvider(options);
+        break;
+      case PROVIDER_TYPES.OLLAMA:
+        provider = new OllamaProvider(options);
         break;
       // Add other providers here
       default:

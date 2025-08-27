@@ -36,6 +36,45 @@ class Provider {
   }
 
   /**
+   * Default SSE chunk processor: parses lines that start with 'data:' into JSON objects.
+   * Returns an array of parsed objects. Providers may override for provider-specific mapping.
+   */
+  _processChunk(chunk) {
+    const result = [];
+    const raw = (this._sseBuffer || '') + chunk;
+    const lines = raw.split('\n');
+
+    this._sseBuffer = '';
+
+    for (let line of lines) {
+      const originalLine = line;
+      if (!originalLine.trim().startsWith('data:')) continue;
+      line = originalLine.replace(/^data: /, '').trim();
+
+      if (line === '[DONE]') {
+        return result;
+      }
+
+      if (!line) continue;
+
+      try {
+        const parsed = JSON.parse(line);
+        result.push(parsed);
+      } catch (e) {
+        const trimmed = line.trim();
+        const mightBePartial = !/[\]}]$/.test(trimmed);
+        if (mightBePartial) {
+          this._sseBuffer = originalLine;
+          continue;
+        }
+        this._handleParseError(line, e);
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Generate a completion for the given messages
    * 
    * @param {CompletionOptions} options - Completion options
