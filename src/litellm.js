@@ -16,8 +16,6 @@ class LiteLLM {
   constructor() {
     this.providers = {};
     this.proxies = [];
-  // modelRoutes maps model prefix (lowercase) -> providerName (lowercase)
-  this.modelRoutes = {};
   }
 
   /**
@@ -143,19 +141,6 @@ class LiteLLM {
   }
 
   /**
-   * Register a static route that maps a model prefix to a specific provider name.
-   * This lets callers use model-only strings (e.g. 'my-model') and have them routed
-   * to a specific provider instance that was registered under a given name.
-   *
-   * @param {string} modelPrefix - Prefix to match (case-insensitive)
-   * @param {string} providerName - Registered provider name to route to (case-insensitive)
-   */
-  registerModelRoute(modelPrefix, providerName) {
-    if (!modelPrefix || !providerName) return;
-    this.modelRoutes[String(modelPrefix).toLowerCase()] = String(providerName).toLowerCase();
-  }
-
-  /**
    * Return a deduplicated list of registered providers and some basic metadata
    * Useful for debugging or introspection in apps.
    *
@@ -176,6 +161,7 @@ class LiteLLM {
     }
     return out;
   }
+  
 
   /**
    * Get the appropriate provider for a model
@@ -192,15 +178,7 @@ class LiteLLM {
       return proxyResult;
     }
 
-    // Check explicit model routing table (modelRoutes) first
-    const routeKey = (actualModel || modelString || '').toLowerCase();
-    for (const prefix of Object.keys(this.modelRoutes)) {
-      if (routeKey.startsWith(prefix)) {
-        const routedProviderName = this.modelRoutes[prefix];
-        const routed = this.providers[routedProviderName];
-        if (routed) return { provider: routed, actualModel: actualModel || modelString };
-      }
-    }
+    
 
     // If explicit provider is specified, try to use it
     if (explicitProvider && this.providers[explicitProvider]) {

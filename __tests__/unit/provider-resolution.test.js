@@ -66,17 +66,4 @@ describe('provider/model resolution', () => {
     expect(r2.provider).not.toBeNull();
     expect(r1.provider).not.toBe(r2.provider);
   });
-
-  it('routes model-only names to specific provider instances via registerModelRoute', () => {
-    const lite = new LiteLLM();
-    lite.registerProvider('ollama', { apiKey: 'a1', name: 'ollama-east' });
-    lite.registerProvider('ollama', { apiKey: 'a2', name: 'ollama-west' });
-
-    // route models that start with 'east-' to ollama-east
-    lite.registerModelRoute('east-', 'ollama-east');
-
-    const r = lite.getProviderForModel('east-xyz');
-    expect(r.provider).not.toBeNull();
-    expect(r.provider.providerName).toBe('ollama-east');
-  });
 });
