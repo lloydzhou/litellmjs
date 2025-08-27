@@ -21,8 +21,9 @@ class LiteLLMClient {
     const requestOptions = {
       method,
       headers: {
-        'Content-Type': 'application/json',
-        ...headers
+  'Content-Type': 'application/json',
+  ...(stream ? { 'Accept': 'text/event-stream' } : {}),
+  ...headers
       },
       signal
     };

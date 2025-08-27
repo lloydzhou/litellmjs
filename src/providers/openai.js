@@ -60,11 +60,16 @@ class OpenAIProvider extends Provider {
         try {
           while (true) {
             const { done, value } = await reader.read();
-            
+
             if (done) {
+              // process any remaining buffered data
+              if (this._sseBuffer) {
+                yield* this._processChunk('\n' + this._sseBuffer);
+                this._resetSseBuffer();
+              }
               break;
             }
-            
+
             const chunk = decoder.decode(value);
             yield* this._processChunk(chunk);
           }
@@ -95,23 +100,41 @@ class OpenAIProvider extends Provider {
    * @returns {Array} - Array of parsed JSON objects from the chunk
    */
   *_processChunk(chunk) {
-    const lines = chunk
-      .split('\n')
-      .filter(line => line.trim().startsWith('data:'))
-      .map(line => line.replace(/^data: /, '').trim());
-    
-    for (const line of lines) {
+    // Support partial JSON across chunks by buffering until we can parse complete JSON
+    const raw = this._sseBuffer + chunk;
+    const lines = raw.split('\n');
+
+    // reset buffer and repopulate for any trailing partial
+    this._sseBuffer = '';
+
+    for (let line of lines) {
+      const originalLine = line;
+      if (!originalLine.trim().startsWith('data:')) continue;
+      line = originalLine.replace(/^data: /, '').trim();
+
       if (line === '[DONE]') {
+        // unified behavior: treat as end-of-stream signal
         return;
       }
-      
+
+      if (!line) continue;
+
       try {
-        if (line) {
-          const parsed = JSON.parse(line);
-          yield parsed;
-        }
+        const parsed = JSON.parse(line);
+        yield parsed;
       } catch (e) {
-        console.error('Error parsing SSE line:', line, e);
+        // If this looks like a partial JSON (doesn't end with } or ]), buffer the original line
+        const trimmed = line.trim();
+        const mightBePartial = !/[\]}]$/.test(trimmed);
+        if (mightBePartial) {
+          // save partial original line (including the 'data:' prefix) for next chunk
+          this._sseBuffer = originalLine;
+          continue;
+        }
+
+        // log or store parse error
+        this._handleParseError(line, e);
+        continue;
       }
     }
   }
