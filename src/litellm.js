@@ -1,6 +1,9 @@
 import { MODEL_PREFIXES, PROVIDER_TYPES } from './types.js';
 import OpenAIProvider from './providers/openai.js';
 import AnthropicProvider from './providers/anthropic.js';
+import AzureProvider from './providers/azure.js';
+import GoogleProvider from './providers/google.js';
+import OllamaProvider from './providers/ollama.js';
 import { LiteLLMError } from './client.js';
 
 /**
@@ -49,8 +52,11 @@ class LiteLLM {
    * @returns {Provider} - The registered provider
    */
   registerProvider(type, options) {
-    const providerType = type.toLowerCase();
-    let provider;
+  // type may be a provider type (e.g. 'openai')
+  // options may include a `name` to register multiple providers of the same type
+  const providerType = type.toLowerCase();
+  const providerName = (options && options.name) ? String(options.name).toLowerCase() : providerType;
+  let provider;
     
     switch (providerType) {
       case PROVIDER_TYPES.OPENAI:
@@ -59,13 +65,32 @@ class LiteLLM {
       case PROVIDER_TYPES.ANTHROPIC:
         provider = new AnthropicProvider(options);
         break;
+      case PROVIDER_TYPES.AZURE:
+        provider = new AzureProvider(options);
+        break;
+      case PROVIDER_TYPES.GOOGLE:
+        provider = new GoogleProvider(options);
+        break;
+      case PROVIDER_TYPES.OLLAMA:
+        provider = new OllamaProvider(options);
+        break;
       // Add other providers here
       default:
         throw new LiteLLMError(`Unsupported provider type: ${type}`, 400);
     }
     
-    this.providers[providerType] = provider;
-    return provider;
+  // Store provider under its chosen registration name so multiple providers
+  // of the same providerType can coexist (e.g. two Ollama instances).
+  this.providers[providerName] = provider;
+  // also expose provider under its type if not already present to preserve
+  // backwards compatibility for consumers that rely on `providers['openai']`.
+  if (!this.providers[providerType]) this.providers[providerType] = provider;
+
+  // attach metadata
+  provider.providerName = providerName;
+  provider.providerType = providerType;
+
+  return provider;
   }
 
   /**
@@ -116,6 +141,29 @@ class LiteLLM {
   }
 
   /**
+   * Return a deduplicated list of registered providers and some basic metadata
+   * Useful for debugging or introspection in apps.
+   *
+   * @returns {Array<{name:string, type:string|null, baseUrl:string|null}>}
+   */
+  getRegisteredProviders() {
+    const seen = new Set();
+    const out = [];
+    for (const [key, provider] of Object.entries(this.providers)) {
+      const pname = (provider && provider.providerName) ? provider.providerName : key;
+      if (seen.has(pname)) continue;
+      seen.add(pname);
+      out.push({
+        name: pname,
+        type: (provider && provider.providerType) ? provider.providerType : null,
+        baseUrl: (provider && provider.baseUrl) ? provider.baseUrl : null
+      });
+    }
+    return out;
+  }
+  
+
+  /**
    * Get the appropriate provider for a model
    * 
    * @param {string} modelString - Model string (can be "provider/model" or just "model")
@@ -129,6 +177,8 @@ class LiteLLM {
     if (proxyResult) {
       return proxyResult;
     }
+
+    
 
     // If explicit provider is specified, try to use it
     if (explicitProvider && this.providers[explicitProvider]) {

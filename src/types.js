@@ -32,6 +32,7 @@
 export const PROVIDER_TYPES = {
   OPENAI: 'openai',
   ANTHROPIC: 'anthropic',
+  OLLAMA: 'ollama',
   AZURE: 'azure',
   GOOGLE: 'google',
   COHERE: 'cohere',
@@ -41,6 +42,7 @@ export const PROVIDER_TYPES = {
 export const MODEL_PREFIXES = {
   'gpt': PROVIDER_TYPES.OPENAI,
   'claude': PROVIDER_TYPES.ANTHROPIC,
+  'ollama': PROVIDER_TYPES.OLLAMA,
   'azure': PROVIDER_TYPES.AZURE,
   'gemini': PROVIDER_TYPES.GOOGLE,
   'palm': PROVIDER_TYPES.GOOGLE,

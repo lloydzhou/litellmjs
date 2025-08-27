@@ -14,7 +14,8 @@
   },
   "scripts": {
     "build": "rollup -c",
-    "test": "vitest --config vitest.config.mjs"
+  "test": "vitest --config vitest.config.mjs",
+  "lint": "eslint . --ext .js,.mjs --ignore-pattern 'node_modules/*,dist/*,coverage/*'"
   },
   "keywords": [
     "litellm",
@@ -37,6 +38,8 @@
     "@rollup/plugin-typescript": "^11.1.0",
     "rollup": "^3.20.0",
     "typescript": "^5.0.2",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+  "nock": "^13.3.0",
+  "eslint": "^8.57.1"
   }
 }
