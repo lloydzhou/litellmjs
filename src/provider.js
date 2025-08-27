@@ -102,7 +102,7 @@ class Provider {
    * @returns {Promise<Object>} - The API response
    */
   async makeRequest(path, options = {}) {
-    const url = `${this.baseUrl}${path}`;
+  const url = /^https?:\/\//i.test(path) ? path : `${this.baseUrl}${path}`;
     const headers = {
       ...this._getAuthHeaders(),
       ...options.headers
