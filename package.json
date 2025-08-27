@@ -6,7 +6,7 @@
   "module": "dist/litellm.mjs",
   "browser": "dist/litellm.umd.js",
   "types": "dist/types.d.ts",
-
+  "type": "module",
   "homepage": "https://github.com/lloydzhou/litellmjs",
   "repository": {
     "type": "git",
@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "rollup -c",
-    "test": "jest"
+    "test": "vitest --config vitest.config.mjs"
   },
   "keywords": [
     "litellm",
@@ -32,11 +32,11 @@
     "cross-fetch": "^3.1.5"
   },
   "devDependencies": {
-    "jest": "^29.5.0",
-    "rollup": "^3.20.0",
     "@rollup/plugin-commonjs": "^24.0.1",
     "@rollup/plugin-node-resolve": "^15.0.2",
     "@rollup/plugin-typescript": "^11.1.0",
-    "typescript": "^5.0.2"
+    "rollup": "^3.20.0",
+    "typescript": "^5.0.2",
+    "vitest": "^3.2.4"
   }
 }

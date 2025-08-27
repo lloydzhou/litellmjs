@@ -13,9 +13,26 @@ class Provider {
    * @param {Object} [options.defaultParams={}] - Default parameters for all requests
    */
   constructor(options = {}) {
-    this.apiKey = options.apiKey;
-    this.baseUrl = options.baseUrl || this.constructor.defaultBaseUrl;
-    this.defaultParams = options.defaultParams || {};
+  this.options = options || {};
+  this.apiKey = options.apiKey;
+  this.baseUrl = options.baseUrl || this.constructor.defaultBaseUrl;
+  this.defaultParams = options.defaultParams || {};
+
+  // internal buffering for SSE parsing across chunks
+  this._sseBuffer = '';
+  // collect parse errors for tests / diagnostics
+  this._parseErrors = [];
+    // maximum buffered SSE length to avoid OOM from malformed streams
+    this._maxSseBuffer = (this.options && this.options.maxSseBuffer) || 64 * 1024; // 64KB
+  }
+
+  _appendToSseBuffer(str) {
+    this._sseBuffer = (this._sseBuffer || '') + str;
+    if (this._sseBuffer.length > this._maxSseBuffer) {
+      // reset and record an error
+      this._handleParseError(this._sseBuffer, new Error('SSE buffer overflow'));
+      this._sseBuffer = '';
+    }
   }
 
   /**
@@ -89,6 +106,27 @@ class Provider {
       ...options,
       messages: this._transformMessages(options.messages)
     };
+  }
+
+  /**
+   * Handle a JSON parse error from SSE parsing. Stores the error and optionally logs it
+   * @param {string} line
+   * @param {Error} error
+   */
+  _handleParseError(line, error) {
+    try {
+      this._parseErrors.push({ line, message: error?.message || String(error) });
+    } catch (e) {
+      // ignore
+    }
+
+    if (this.options && this.options.debug) {
+      console.error('SSE parse error:', error, 'line:', line);
+    }
+  }
+
+  _resetSseBuffer() {
+    this._sseBuffer = '';
   }
 
   /**

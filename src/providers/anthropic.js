@@ -86,7 +86,7 @@ class AnthropicProvider extends Provider {
         for await (const chunk of response.body) {
           const strChunk = new TextDecoder('utf-8').decode(chunk);
           const processedChunks = this._processChunk(strChunk);
-          
+
           for (const processedChunk of processedChunks) {
             // Convert each Anthropic chunk to OpenAI format
             yield this._convertStreamChunkToOpenAIFormat(processedChunk, options);
@@ -114,26 +114,39 @@ class AnthropicProvider extends Provider {
    */
   _processChunk(chunk) {
     const result = [];
-    const lines = chunk
-      .split('\n')
-      .filter(line => line.trim().startsWith('data:'))
-      .map(line => line.replace(/^data: /, '').trim());
-    
-    for (const line of lines) {
+    const raw = this._sseBuffer + chunk;
+    const lines = raw.split('\n');
+
+    // reset buffer each call; we'll reassign if we detect a partial line
+    this._sseBuffer = '';
+
+    for (let line of lines) {
+      const originalLine = line;
+      if (!originalLine.trim().startsWith('data:')) continue;
+      line = originalLine.replace(/^data: /, '').trim();
+
       if (line === '[DONE]') {
-        continue;
+        // unified: stop processing further
+        return result;
       }
-      
+
+      if (!line) continue;
+
       try {
-        if (line) {
-          const parsed = JSON.parse(line);
-          result.push(parsed);
-        }
+        const parsed = JSON.parse(line);
+        result.push(parsed);
       } catch (e) {
-        console.error('Error parsing SSE line:', line, e);
+        const trimmed = line.trim();
+        const mightBePartial = !/[\]}]$/.test(trimmed);
+        if (mightBePartial) {
+          this._sseBuffer = originalLine;
+          continue;
+        }
+
+        this._handleParseError(line, e);
       }
     }
-    
+
     return result;
   }
 
@@ -339,24 +352,25 @@ class AnthropicProvider extends Provider {
    * @returns {Object} - Transformed options for Anthropic
    */
   _transformOptions(options) {
-    const messages = this._transformMessages(options.messages);
-    
+    // avoid mutating caller's options
+    const incomingMessages = Array.isArray(options.messages) ? [...options.messages] : [];
+    const messages = this._transformMessages(incomingMessages);
+
     const transformed = {
       ...this.defaultParams,
       model: options.model,
       messages: messages,
       stream: options.stream || false,
     };
-    
+
     // Extract all system messages and combine them if there are multiple
-    const systemMessages = options.messages?.filter(m => m.role === 'system') || [];
+    const systemMessages = incomingMessages.filter(m => m.role === 'system') || [];
     if (systemMessages.length > 1) {
       // Multiple system messages, combine them into a single system message
       const combinedContent = systemMessages.map(m => m.content).join('\n');
       transformed.system = combinedContent;
 
-      // Remove all system messages and add a single combined one
-      options.messages = options.messages.filter(m => m.role !== 'system');
+      // do not mutate caller's messages; we used incomingMessages copy above
     }
 
     // Add completion parameters
